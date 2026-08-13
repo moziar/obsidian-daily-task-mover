@@ -1,6 +1,6 @@
 {
   "name": "daily-task-mover",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Move the task to the same heading on the previous or next day.",
   "main": "main.js",
   "scripts": {
