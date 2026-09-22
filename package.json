@@ -1,9 +1,10 @@
 {
   "name": "daily-task-mover",
   "version": "0.2.4",
-  "description": "Move the task to the same heading on the previous or next day.",
+  "description": "Move tasks to the same heading in the previous or next daily note or journal period.",
   "main": "main.js",
   "scripts": {
+    "test": "node --test tests/*.cjs",
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
@@ -17,7 +18,8 @@
   "author": "moz",
   "license": "MIT",
   "dependencies": {
-    "obsidian-daily-notes-interface": "^0.9.5"
+    "obsidian-daily-notes-interface": "^0.9.5",
+    "obsidian-journals-api": "^1.3.0"
   },
   "devDependencies": {
     "@codemirror/state": "^6.7.1",

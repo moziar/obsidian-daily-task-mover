@@ -3,7 +3,7 @@
 	"name": "Daily Task Mover",
 	"version": "0.2.4",
 	"minAppVersion": "1.5.0",
-	"description": "Move the task to the same heading on the previous or next day.",
+	"description": "Move tasks to the same heading in the previous or next daily note or journal period.",
 	"author": "moz",
 	"authorUrl": "https://github.com/moziar",
 	"isDesktopOnly": true

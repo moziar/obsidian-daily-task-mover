@@ -22,13 +22,17 @@ import {
   getTaskAtLine,
   getTaskBlockRange,
 } from "./src/taskCache";
-import { getCurrentDailyDate, getOrCreateDailyNote } from "./src/dailyNoteUtils";
+import { DailyNoteProvider } from "./src/dailyNoteProvider";
+import { isNoteCreationCancelled } from "./src/noteProviders/types";
 import { moveTaskToNote } from "./src/taskMover";
 import { buildTaskIconField, refreshTaskIconsEffect } from "./src/taskLineIcon";
 import { t, setLanguage } from "./src/i18n";
 
 export default class DailyTaskMoverPlugin extends Plugin {
   declare settings: DailyTaskMoverSettings;
+  private dailyNotes!: DailyNoteProvider;
+  private warnedUnavailableProvider: string | null = null;
+  private refreshDailyNotes = debounce(() => this.refreshTaskIcons(), 50, true);
 
   /**
    * 防抖触发预览全量重渲染（trailing）。
@@ -43,6 +47,37 @@ export default class DailyTaskMoverPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
     setLanguage(this.settings.language);
+    this.dailyNotes = new DailyNoteProvider(
+      this.app,
+      () => this.settings.noteProvider,
+      () => this.refreshDailyNotes()
+    );
+    this.register(() => {
+      this.dailyNotes.dispose();
+      this.refreshDailyNotes.cancel();
+    });
+    this.app.workspace.onLayoutReady(() => {
+      const status = this.getNoteProviderStatus();
+      if (!status.available && status.selection !== "auto") {
+        this.warnedUnavailableProvider = status.selection;
+        new Notice(status.message);
+      }
+      this.refreshDailyNotes();
+    });
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.refreshDailyNotes()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshDailyNotes()));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => {
+      this.dailyNotes.invalidate(file);
+      this.refreshDailyNotes();
+    }));
+    this.registerEvent(this.app.vault.on("rename", (file) => {
+      if (file instanceof TFile) this.dailyNotes.invalidate(file);
+      this.refreshDailyNotes();
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (file instanceof TFile) this.dailyNotes.invalidate(file);
+      this.refreshDailyNotes();
+    }));
 
     this.addSettingTab(new DailyTaskMoverSettingTab(this.app, this));
 
@@ -53,7 +88,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
         if (!this.settings.enablePreviousDay) return;
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!view || !view.file) return;
-        const date = getCurrentDailyDate(view.file);
+        const date = this.dailyNotes.getDate(view.file);
         if (!date) return;
         const cache = this.app.metadataCache.getFileCache(view.file);
         if (!cache) return;
@@ -72,7 +107,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
         if (!this.settings.enableNextDay) return;
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!view || !view.file) return;
-        const date = getCurrentDailyDate(view.file);
+        const date = this.dailyNotes.getDate(view.file);
         if (!date) return;
         const cache = this.app.metadataCache.getFileCache(view.file);
         if (!cache) return;
@@ -107,7 +142,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
             view &&
             view.getMode() === "preview" &&
             view.file === file &&
-            getCurrentDailyDate(file) &&
+            this.dailyNotes.getDate(file) &&
             this.hasActiveIconAction()
           ) {
             this.rerenderPreview(view);
@@ -137,7 +172,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
   /** 当前 active MarkdownView 的文件是否为日记笔记。 */
   private isDailyNoteActive(): boolean {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    return !!view?.file && !!getCurrentDailyDate(view.file);
+    return !!view?.file && !!this.dailyNotes.getDate(view.file);
   }
 
   /** 左键或右键至少配置了一个非 none 动作时，才显示行内图标。 */
@@ -154,6 +189,18 @@ export default class DailyTaskMoverPlugin extends Plugin {
    * 阅读模式：rerender 重跑 post processor（hasActiveIconAction 已变化）。
    */
   refreshTaskIcons(): void {
+    const status = this.getNoteProviderStatus();
+    if (status.available || status.selection === "auto") {
+      this.warnedUnavailableProvider = null;
+    } else if (this.app.workspace.layoutReady && this.warnedUnavailableProvider !== status.selection) {
+      this.warnedUnavailableProvider = status.selection;
+      new Notice(status.message);
+    }
+    // Warm asynchronous lookups on mobile too, before command availability is checked.
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file) this.dailyNotes.getDate(view.file);
+    }
     if (Platform.isMobile) return;
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       const view = leaf.view;
@@ -168,6 +215,10 @@ export default class DailyTaskMoverPlugin extends Plugin {
     }
   }
 
+  getNoteProviderStatus() {
+    return this.dailyNotes.getStatus();
+  }
+
   /** 编辑模式图标点击：从 active view 解析文件后分发动作。 */
   private handleIconClick(line: number, evt: MouseEvent): void {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -180,7 +231,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
    * file 由调用方传入（阅读模式用闭包中的 ctx 文件，避免分屏时 active view 错位）。
    */
   private dispatchIconClick(file: TFile, line: number, evt: MouseEvent): void {
-    if (!getCurrentDailyDate(file)) return;
+    if (!this.dailyNotes.getDate(file)) return;
     const action =
       evt.type === "contextmenu"
         ? this.settings.rightClickAction
@@ -247,12 +298,13 @@ export default class DailyTaskMoverPlugin extends Plugin {
     taskLine: number
   ): Promise<void> {
     try {
-      const date = getCurrentDailyDate(file);
-      if (!date) {
+      const context = await this.dailyNotes.resolve(file);
+      if (!context) {
         new Notice(t("notice.notDailyNote"));
         return;
       }
 
+      const date = context.date;
       const cache = this.app.metadataCache.getFileCache(file);
       if (!cache) return;
       const taskItem = getTaskAtLine(cache, taskLine);
@@ -272,9 +324,9 @@ export default class DailyTaskMoverPlugin extends Plugin {
       const targetDate =
         direction === "prev"
           ? date.clone().subtract(1, "day")
-          : date.clone().add(1, "day");
+          : context.endDate.clone().add(1, "day");
 
-      const targetFile = await getOrCreateDailyNote(targetDate);
+      const targetFile = await context.getOrCreate(targetDate);
 
       await moveTaskToNote({
         app: this.app,
@@ -284,6 +336,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
         targetFile,
       });
     } catch (err) {
+      if (isNoteCreationCancelled(err)) return;
       const e = err as { message?: string };
       new Notice(String(e?.message ?? err));
     }
@@ -300,7 +353,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
   ): void {
     const tfile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
     if (!(tfile instanceof TFile)) return;
-    if (!getCurrentDailyDate(tfile)) return;
+    if (!this.dailyNotes.getDate(tfile)) return;
     if (!this.hasActiveIconAction()) return;
 
     const cache = this.app.metadataCache.getFileCache(tfile);

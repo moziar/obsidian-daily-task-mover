@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type DailyTaskMoverPlugin from "../main";
 import type { ClickAction, Language } from "./settings";
+import { noteProviders } from "./noteProviders";
 import { t, setLanguage } from "./i18n";
 
 export class DailyTaskMoverSettingTab extends PluginSettingTab {
@@ -17,6 +18,39 @@ export class DailyTaskMoverSettingTab extends PluginSettingTab {
    */
   hide(): void {
     this.plugin.refreshTaskIcons();
+  }
+
+  private renderNoteProvider(setting: Setting): void {
+    setting.addDropdown((dropdown) => {
+      dropdown.addOption("auto", t("provider.auto"));
+      for (const provider of noteProviders) {
+        dropdown.addOption(provider.id, provider.label);
+      }
+      const refreshAvailability = () => {
+        for (const provider of noteProviders) {
+          const option = Array.from(dropdown.selectEl.options).find((option) => option.value === provider.id);
+          if (!option) continue;
+          const state = provider.getState(this.app);
+          option.disabled = state !== "available";
+          option.textContent = state === "available" ? provider.label
+            : t(state === "disabled" ? "provider.disabledOption"
+              : state === "unsupported" ? "provider.unsupportedOption"
+                : "provider.unavailableOption", { provider: provider.label });
+        }
+        const status = this.plugin.getNoteProviderStatus();
+        setting.setDesc(`${t("settings.noteProviderDesc")} ${status.message}`);
+      };
+      refreshAvailability();
+      dropdown.selectEl.addEventListener("focus", refreshAvailability);
+      dropdown
+        .setValue(this.plugin.settings.noteProvider)
+        .onChange(async (value) => {
+          this.plugin.settings.noteProvider = value;
+          await this.plugin.saveSettings();
+          this.plugin.refreshTaskIcons();
+          refreshAvailability();
+        });
+    });
   }
 
   // ── 1.13.0+: 声明式 API ──────────────────────────────────────────
@@ -40,6 +74,11 @@ export class DailyTaskMoverSettingTab extends PluginSettingTab {
       this.plugin.settings.rightClickAction === "popup";
 
     return [
+      {
+        name: t("settings.noteProvider"),
+        desc: t("settings.noteProviderDesc"),
+        render: (setting: Setting) => this.renderNoteProvider(setting),
+      },
       {
         name: t("settings.language"),
         desc: t("settings.languageDesc"),
@@ -104,6 +143,9 @@ export class DailyTaskMoverSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    this.renderNoteProvider(new Setting(containerEl)
+      .setName(t("settings.noteProvider"))
+      .setDesc(t("settings.noteProviderDesc")));
 
     // 每次渲染时即时取当前语言，避免切换语言后标签停留在旧语言
     const clickActionLabels: Record<ClickAction, string> = {
