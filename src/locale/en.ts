@@ -1,4 +1,6 @@
 const en = {
+  "error.noteNotIndexed": "Obsidian did not finish indexing the destination note. Try the move again.",
+  "error.targetChanged": "The destination note changed. Try the move again.",
   "command.moveToPreviousDay": "Move task to previous day",
   "command.moveToNextDay": "Move task to next day",
   "menu.moveToPreviousDay": "Move to previous day",

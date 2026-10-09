@@ -1,4 +1,6 @@
 const zhCN = {
+  "error.noteNotIndexed": "Obsidian 尚未完成目标笔记的索引，请重试移动任务。",
+  "error.targetChanged": "目标笔记已更改，请重试移动任务。",
   "command.moveToPreviousDay": "移动任务到前一天",
   "command.moveToNextDay": "移动任务到后一天",
   "menu.moveToPreviousDay": "移动到前一天",

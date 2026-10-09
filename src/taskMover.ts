@@ -1,5 +1,7 @@
 import { App, Notice, TFile } from "obsidian";
 import { t } from "./i18n";
+import { readIndexedNote } from "./noteMetadata";
+import type { IndexedNote } from "./noteMetadata";
 
 interface MoveOpts {
   app: App;
@@ -7,6 +9,7 @@ interface MoveOpts {
   blockRange: { startLine: number; endLine: number };
   sourceHeading: { level: number; text: string } | null;
   targetFile: TFile;
+  targetSnapshot?: IndexedNote;
 }
 
 /**
@@ -54,6 +57,8 @@ function appendNewHeading(
 export async function moveTaskToNote(opts: MoveOpts): Promise<void> {
   const { app, sourceFile, blockRange, sourceHeading, targetFile } = opts;
   try {
+    const target = opts.targetSnapshot ?? await readIndexedNote(app, async () => targetFile);
+    const targetCache = target.cache;
     // 统一从 vault 读取源文件内容，避免编辑器/vault 不同步
     const sourceContent = await app.vault.read(sourceFile);
     const sourceLines = sourceContent.split("\n");
@@ -63,12 +68,11 @@ export async function moveTaskToNote(opts: MoveOpts): Promise<void> {
       .join("\n");
     const firstLine = blockText.split("\n")[0] ?? "";
 
-    const targetContent = await app.vault.read(targetFile);
+    const targetContent = target.content;
     const targetLines = targetContent.split("\n");
 
     // ---- 冲突检测（修改前）----
     if (sourceHeading) {
-      const targetCache = app.metadataCache.getFileCache(targetFile);
       const matches = (targetCache?.headings ?? []).filter(
         (h) => h.level === sourceHeading.level && h.heading === sourceHeading.text
       );
@@ -89,7 +93,6 @@ export async function moveTaskToNote(opts: MoveOpts): Promise<void> {
     let targetHeadingLine: number | null = null;
     let sectionEndLine = Number.MAX_SAFE_INTEGER;
     if (sourceHeading) {
-      const targetCache = app.metadataCache.getFileCache(targetFile);
       const headings = targetCache?.headings ?? [];
       const match = headings.find(
         (h) => h.level === sourceHeading.level && h.heading === sourceHeading.text
@@ -110,6 +113,7 @@ export async function moveTaskToNote(opts: MoveOpts): Promise<void> {
 
     // ---- 插入到目标笔记（原子操作）----
     await app.vault.process(targetFile, (data: string) => {
+      if (data !== targetContent) throw new Error(t("error.targetChanged"));
       const lines = data.split("\n");
 
       if (sourceHeading === null) {

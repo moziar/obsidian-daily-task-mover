@@ -23,6 +23,7 @@ import {
   getTaskBlockRange,
 } from "./src/taskCache";
 import { getCurrentDailyDate, getOrCreateDailyNote } from "./src/dailyNoteUtils";
+import { readIndexedNote } from "./src/noteMetadata";
 import { moveTaskToNote } from "./src/taskMover";
 import { buildTaskIconField, refreshTaskIconsEffect } from "./src/taskLineIcon";
 import { t, setLanguage } from "./src/i18n";
@@ -274,14 +275,15 @@ export default class DailyTaskMoverPlugin extends Plugin {
           ? date.clone().subtract(1, "day")
           : date.clone().add(1, "day");
 
-      const targetFile = await getOrCreateDailyNote(targetDate);
+      const targetSnapshot = await readIndexedNote(this.app, () => getOrCreateDailyNote(targetDate));
 
       await moveTaskToNote({
         app: this.app,
         sourceFile: file,
         blockRange,
         sourceHeading,
-        targetFile,
+        targetFile: targetSnapshot.file,
+        targetSnapshot,
       });
     } catch (err) {
       const e = err as { message?: string };
