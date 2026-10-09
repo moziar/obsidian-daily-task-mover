@@ -54,6 +54,8 @@ class TaskIconWidget extends WidgetType {
     span.setAttribute("aria-hidden", "true");
     span.setAttribute("title", t("title.moveTask"));
     setIcon(span, "arrow-left-right");
+    // Keep the editor selection when a user presses its move icon.
+    span.addEventListener("mousedown", (event) => event.preventDefault());
     span.addEventListener("click", (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -80,7 +82,7 @@ function buildDecorations(
   // 光标所在行不显示图标：用户正在输入时隐藏，光标移走后恢复
   const cursorLine = state.doc.lineAt(state.selection.main.head).number;
   for (let i = 1; i <= state.doc.lines; i++) {
-    if (i === cursorLine) continue;
+    if (i === cursorLine && state.selection.main.empty) continue;
     const line = state.doc.line(i);
     const match = TASK_LINE_REGEX.exec(line.text);
     if (match) {

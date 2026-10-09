@@ -18,12 +18,11 @@ import {
 } from "./src/settings";
 import { DailyTaskMoverSettingTab } from "./src/settingsTab";
 import {
-  deriveSourceHeading,
-  getTaskAtLine,
-  getTaskBlockRange,
+  getSelectedTaskLines,
+  getTaskMoves,
 } from "./src/taskCache";
 import { getCurrentDailyDate, getOrCreateDailyNote } from "./src/dailyNoteUtils";
-import { moveTaskToNote } from "./src/taskMover";
+import { moveTasksToNote } from "./src/taskMover";
 import { buildTaskIconField, refreshTaskIconsEffect } from "./src/taskLineIcon";
 import { t, setLanguage } from "./src/i18n";
 
@@ -57,11 +56,10 @@ export default class DailyTaskMoverPlugin extends Plugin {
         if (!date) return;
         const cache = this.app.metadataCache.getFileCache(view.file);
         if (!cache) return;
-        const line = view.editor.getCursor().line;
-        const taskItem = getTaskAtLine(cache, line);
-        if (!taskItem) return;
+        const lines = getSelectedTaskLines(cache, view.editor.listSelections());
+        if (!lines.length) return;
         if (checking) return true;
-        void this.doMove("prev", view.file, line);
+        void this.doMove("prev", view.file, lines);
       },
     });
 
@@ -76,11 +74,10 @@ export default class DailyTaskMoverPlugin extends Plugin {
         if (!date) return;
         const cache = this.app.metadataCache.getFileCache(view.file);
         if (!cache) return;
-        const line = view.editor.getCursor().line;
-        const taskItem = getTaskAtLine(cache, line);
-        if (!taskItem) return;
+        const lines = getSelectedTaskLines(cache, view.editor.listSelections());
+        if (!lines.length) return;
         if (checking) return true;
-        void this.doMove("next", view.file, line);
+        void this.doMove("next", view.file, lines);
       },
     });
 
@@ -172,14 +169,16 @@ export default class DailyTaskMoverPlugin extends Plugin {
   private handleIconClick(line: number, evt: MouseEvent): void {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.file) return;
-    this.dispatchIconClick(view.file, line, evt);
+    const cache = this.app.metadataCache.getFileCache(view.file);
+    const selected = cache ? getSelectedTaskLines(cache, view.editor.listSelections()) : [];
+    this.dispatchIconClick(view.file, selected.includes(line) ? selected : [line], evt);
   }
 
   /**
    * 图标点击分发：根据事件类型（左键/右键）取对应动作执行。
    * file 由调用方传入（阅读模式用闭包中的 ctx 文件，避免分屏时 active view 错位）。
    */
-  private dispatchIconClick(file: TFile, line: number, evt: MouseEvent): void {
+  private dispatchIconClick(file: TFile, line: number | number[], evt: MouseEvent): void {
     if (!getCurrentDailyDate(file)) return;
     const action =
       evt.type === "contextmenu"
@@ -192,7 +191,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
   private handleIconAction(
     action: ClickAction,
     file: TFile,
-    taskLine: number,
+    taskLine: number | number[],
     evt: MouseEvent
   ): void {
     switch (action) {
@@ -211,7 +210,7 @@ export default class DailyTaskMoverPlugin extends Plugin {
   }
 
   /** 弹出前一天/后一天菜单。菜单始终显示所有启用的方向，不随左右键绑定移除。 */
-  private openTaskMenu(file: TFile, taskLine: number, evt: MouseEvent): void {
+  private openTaskMenu(file: TFile, taskLine: number | number[], evt: MouseEvent): void {
     const showPrev = this.settings.enablePreviousDay;
     const showNext = this.settings.enableNextDay;
     if (!showPrev && !showNext) return;
@@ -244,9 +243,10 @@ export default class DailyTaskMoverPlugin extends Plugin {
   private async doMove(
     direction: "prev" | "next",
     file: TFile,
-    taskLine: number
+    taskLine: number | number[]
   ): Promise<void> {
     try {
+      const sourceSnapshot = await this.app.vault.read(file);
       const date = getCurrentDailyDate(file);
       if (!date) {
         new Notice(t("notice.notDailyNote"));
@@ -255,19 +255,8 @@ export default class DailyTaskMoverPlugin extends Plugin {
 
       const cache = this.app.metadataCache.getFileCache(file);
       if (!cache) return;
-      const taskItem = getTaskAtLine(cache, taskLine);
-      if (!taskItem) return;
-      // 兜底：子 task 不允许单独移动（图标层已过滤，命令入口在此拦截）
-      if (taskItem.parent >= 0) {
-        new Notice(t("notice.subtaskNotMovable"));
-        return;
-      }
-
-      const blockRange = getTaskBlockRange(cache, taskItem);
-      const sourceHeading = deriveSourceHeading(
-        cache,
-        taskItem.position.start.line
-      );
+      const tasks = getTaskMoves(cache, Array.isArray(taskLine) ? taskLine : [taskLine]);
+      if (!tasks.length) return;
 
       const targetDate =
         direction === "prev"
@@ -276,11 +265,11 @@ export default class DailyTaskMoverPlugin extends Plugin {
 
       const targetFile = await getOrCreateDailyNote(targetDate);
 
-      await moveTaskToNote({
+      await moveTasksToNote({
         app: this.app,
         sourceFile: file,
-        blockRange,
-        sourceHeading,
+        tasks,
+        sourceSnapshot,
         targetFile,
       });
     } catch (err) {

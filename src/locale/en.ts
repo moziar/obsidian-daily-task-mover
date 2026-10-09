@@ -1,6 +1,10 @@
 const en = {
-  "command.moveToPreviousDay": "Move task to previous day",
-  "command.moveToNextDay": "Move task to next day",
+  "error.sourceChanged": "The source note changed. Select the tasks again and retry the move.",
+  "error.targetChanged": "The destination note changed. Try the move again.",
+  "error.sameNote": "The source and destination are the same note. No tasks moved.",
+  "error.sourceRemovalFailed": "Tasks were copied to the destination, but source removal failed. Review both notes before retrying.",
+  "command.moveToPreviousDay": "Move tasks to previous day",
+  "command.moveToNextDay": "Move tasks to next day",
   "menu.moveToPreviousDay": "Move to previous day",
   "menu.moveToNextDay": "Move to next day",
   "notice.notDailyNote": "Current note is not a daily note",

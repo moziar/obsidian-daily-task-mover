@@ -1,4 +1,8 @@
 const zhCN = {
+  "error.sourceChanged": "源笔记已更改，请重新选择任务并重试。",
+  "error.targetChanged": "目标笔记已更改，请重试移动任务。",
+  "error.sameNote": "源笔记和目标笔记相同，未移动任何任务。",
+  "error.sourceRemovalFailed": "任务已复制到目标笔记，但未能从源笔记删除。重试前请检查两份笔记。",
   "command.moveToPreviousDay": "移动任务到前一天",
   "command.moveToNextDay": "移动任务到后一天",
   "menu.moveToPreviousDay": "移动到前一天",

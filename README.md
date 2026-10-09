@@ -24,6 +24,10 @@ Move a task (with all its rich-text sub-items) from the current daily note to th
 2. Hover over a top-level task — an arrow icon appears at the end of the line
 3. Click (or right-click, depending on your settings) the icon to move the task to the previous or next day, or use the corresponding command in the command palette
 
+To move several tasks, select their lines in editing mode. Use a move command or click a move icon inside the selection.
+A selected parent includes all its children, even when the selection ends before them. Each task moves only once.
+If any selected task conflicts with a destination task, the plugin stops the whole move before writing either note.
+
 ## Settings
 
 - **Left click action** / **Right click action**: choose what happens when clicking the inline task icon — `Popup menu`, `Move to previous day`, `Move to next day`, or `No action`

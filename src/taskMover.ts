@@ -1,13 +1,20 @@
 import { App, Notice, TFile } from "obsidian";
 import { t } from "./i18n";
 
-interface MoveOpts {
-  app: App;
-  sourceFile: TFile;
+export interface TaskMove {
   blockRange: { startLine: number; endLine: number };
   sourceHeading: { level: number; text: string } | null;
-  targetFile: TFile;
 }
+
+interface BatchMoveOpts {
+  app: App;
+  sourceFile: TFile;
+  targetFile: TFile;
+  tasks: TaskMove[];
+  sourceSnapshot?: string;
+}
+
+type MoveOpts = Omit<BatchMoveOpts, "tasks"> & TaskMove;
 
 /**
  * 追加文本到目标末尾，确保前面有空行分隔。
@@ -47,119 +54,110 @@ function appendNewHeading(
   return result;
 }
 
-/**
- * 将光标所在任务块从源笔记移动到目标笔记。
- * 冲突/错误通过 Notice 提示，不向上抛出。
- */
+/** Move one task through the same preflight and write path as a selection. */
 export async function moveTaskToNote(opts: MoveOpts): Promise<void> {
-  const { app, sourceFile, blockRange, sourceHeading, targetFile } = opts;
-  try {
-    // 统一从 vault 读取源文件内容，避免编辑器/vault 不同步
-    const sourceContent = await app.vault.read(sourceFile);
-    const sourceLines = sourceContent.split("\n");
-    // 提取块文本（含全部子项）
-    const blockText = sourceLines
-      .slice(blockRange.startLine, blockRange.endLine + 1)
-      .join("\n");
-    const firstLine = blockText.split("\n")[0] ?? "";
+  return moveTasksToNote({ ...opts, tasks: [opts] });
+}
 
+/** Check the whole selection before writing either note. */
+export async function moveTasksToNote(opts: BatchMoveOpts): Promise<void> {
+  const { app, sourceFile, targetFile } = opts;
+  let targetWritten = false;
+  try {
+    if (sourceFile.path === targetFile.path) throw new Error(t("error.sameNote"));
+    if (opts.tasks.length === 0) return;
+    const tasks = [...opts.tasks].sort((a, b) => a.blockRange.startLine - b.blockRange.startLine);
+    const sourceContent = opts.sourceSnapshot ?? await app.vault.read(sourceFile);
+    const sourceLines = sourceContent.split("\n");
+    const targetCache = app.metadataCache.getFileCache(targetFile);
     const targetContent = await app.vault.read(targetFile);
     const targetLines = targetContent.split("\n");
+    const headings = targetCache?.headings ?? [];
+    const seen = new Set(targetLines);
+    const groups: { heading: TaskMove["sourceHeading"]; blocks: string[] }[] = [];
 
-    // ---- 冲突检测（修改前）----
-    if (sourceHeading) {
-      const targetCache = app.metadataCache.getFileCache(targetFile);
-      const matches = (targetCache?.headings ?? []).filter(
-        (h) => h.level === sourceHeading.level && h.heading === sourceHeading.text
-      );
-      if (matches.length > 1) {
-        const hashes = "#".repeat(sourceHeading.level);
-        throw new Error(
-          t("error.multipleHeadings", {
-            heading: `${hashes} ${sourceHeading.text}`,
-          })
-        );
+    for (const [index, task] of tasks.entries()) {
+      const { startLine, endLine } = task.blockRange;
+      if (startLine < 0 || endLine < startLine || endLine >= sourceLines.length ||
+          (index > 0 && startLine <= tasks[index - 1].blockRange.endLine)) {
+        throw new Error(t("error.sourceChanged"));
       }
-    }
-    if (firstLine.length > 0 && targetLines.includes(firstLine)) {
-      throw new Error(t("error.duplicateTask"));
-    }
-
-    // ---- 计算目标标题段范围（基于 metadataCache）----
-    let targetHeadingLine: number | null = null;
-    let sectionEndLine = Number.MAX_SAFE_INTEGER;
-    if (sourceHeading) {
-      const targetCache = app.metadataCache.getFileCache(targetFile);
-      const headings = targetCache?.headings ?? [];
-      const match = headings.find(
-        (h) => h.level === sourceHeading.level && h.heading === sourceHeading.text
-      );
-      if (match) {
-        targetHeadingLine = match.position.start.line;
-        for (const h of headings) {
-          if (
-            h.position.start.line > targetHeadingLine &&
-            h.level <= sourceHeading.level
-          ) {
-            sectionEndLine = h.position.start.line - 1;
-            break;
-          }
-        }
+      const text = sourceLines.slice(startLine, endLine + 1).join("\n");
+      const firstLine = text.split("\n")[0];
+      if (!/^[-*+]\s+\[[^\]]\]/.test(firstLine)) throw new Error(t("error.sourceChanged"));
+      if (seen.has(firstLine)) throw new Error(t("error.duplicateTask"));
+      seen.add(firstLine);
+      let group = groups.find(({ heading }) => heading?.level === task.sourceHeading?.level && heading?.text === task.sourceHeading?.text);
+      if (!group) {
+        group = { heading: task.sourceHeading, blocks: [] };
+        groups.push(group);
       }
+      group.blocks.push(text);
     }
 
-    // ---- 插入到目标笔记（原子操作）----
-    await app.vault.process(targetFile, (data: string) => {
-      const lines = data.split("\n");
-
-      if (sourceHeading === null) {
-        return appendToEnd(data, blockText);
+    const insertions: { line: number; text: string }[] = [];
+    const appended: typeof groups = [];
+    for (const group of groups) {
+      const heading = group.heading;
+      const matches = heading ? headings.filter((item) => item.level === heading.level && item.heading === heading.text) : [];
+      if (heading && matches.length > 1) {
+        throw new Error(t("error.multipleHeadings", { heading: `${"#".repeat(heading.level)} ${heading.text}` }));
       }
-
-      if (targetHeadingLine !== null && targetHeadingLine < lines.length) {
-        const upper = Math.min(sectionEndLine, lines.length - 1);
-        let lastNonEmpty = targetHeadingLine;
-        for (let i = targetHeadingLine; i <= upper; i++) {
-          if (lines[i].trim().length > 0) {
-            lastNonEmpty = i;
-          }
-        }
-        lines.splice(lastNonEmpty + 1, 0, ...blockText.split("\n"));
-        return lines.join("\n");
+      if (!matches.length) {
+        appended.push(group);
+        continue;
       }
+      const match = matches[0];
+      const next = headings.find((item) => item.position.start.line > match.position.start.line && item.level <= match.level);
+      const end = next ? next.position.start.line - 1 : targetLines.length - 1;
+      let lastNonEmpty = match.position.start.line;
+      for (let line = lastNonEmpty; line <= end; line++) {
+        if (targetLines[line]?.trim()) lastNonEmpty = line;
+      }
+      insertions.push({ line: lastNonEmpty + 1, text: group.blocks.join("\n") });
+    }
 
-      // 目标无该标题 → 末尾新建标题 + 任务
-      return appendNewHeading(data, sourceHeading, blockText);
+    // Insert from the bottom so each heading retains its original line position.
+    const updatedTarget = [...targetLines];
+    for (const insertion of insertions.sort((a, b) => b.line - a.line)) {
+      updatedTarget.splice(insertion.line, 0, ...insertion.text.split("\n"));
+    }
+    let targetResult = updatedTarget.join("\n");
+    for (const group of appended) {
+      const text = group.blocks.join("\n");
+      targetResult = group.heading ? appendNewHeading(targetResult, group.heading, text) : appendToEnd(targetResult, text);
+    }
+
+    // Creation prompts and metadata indexing can leave time for the source to change.
+    if (await app.vault.read(sourceFile) !== sourceContent) throw new Error(t("error.sourceChanged"));
+    await app.vault.process(targetFile, (data) => {
+      if (data !== targetContent) throw new Error(t("error.targetChanged"));
+      return targetResult;
     });
+    targetWritten = true;
 
-    // ---- 从源笔记删除任务块（原子操作）----
-    await app.vault.process(sourceFile, (data: string) => {
-      const lines = data.split("\n");
-      const before = lines.slice(0, blockRange.startLine);
-      const after = lines.slice(blockRange.endLine + 1);
-
-      // 块是文件最后一段内容：连带清掉块前由插入逻辑补的分隔空行；
-      // 末尾换行保留文件当前状态——原本没有就不补（零副作用）
-      const isLastContent = after.every((line) => line.trim().length === 0);
-      if (isLastContent) {
-        const remaining = before.slice();
-        while (
-          remaining.length > 0 &&
-          remaining[remaining.length - 1].trim().length === 0
-        ) {
-          remaining.pop();
-        }
-        if (remaining.length === 0) return "";
-        return remaining.join("\n") + (data.endsWith("\n") ? "\n" : "");
+    await app.vault.process(sourceFile, (data) => {
+      if (data !== sourceContent) throw new Error(t("error.sourceChanged"));
+      let result = data;
+      for (const task of [...tasks].reverse()) {
+        result = removeTaskBlock(result, task.blockRange);
       }
-
-      // 块在文件中间：直接拼接前后行，不改动其他空行与末尾换行状态
-      return before.concat(after).join("\n");
+      return result;
     });
-
     new Notice(t("notice.movedTo", { name: targetFile.basename }));
   } catch (err) {
     const e = err as { message?: string };
-    new Notice(String(e?.message ?? err));
+    new Notice(targetWritten ? t("error.sourceRemovalFailed") : String(e?.message ?? err));
   }
+}
+
+function removeTaskBlock(data: string, range: TaskMove["blockRange"]): string {
+  const lines = data.split("\n");
+  const before = lines.slice(0, range.startLine);
+  const after = lines.slice(range.endLine + 1);
+  if (after.every((line) => line.trim().length === 0)) {
+    while (before.length && before[before.length - 1].trim().length === 0) before.pop();
+    return before.length ? before.join("\n") + (data.endsWith("\n") ? "\n" : "") : "";
+  }
+  return before.concat(after).join("\n");
 }

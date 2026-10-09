@@ -1,4 +1,30 @@
 import { CachedMetadata, ListItemCache } from "obsidian";
+import type { EditorSelection } from "obsidian";
+import type { TaskMove } from "./taskMover";
+
+/** A selection ending at column zero excludes that final line. */
+export function getSelectedTaskLines(cache: CachedMetadata, selections: EditorSelection[]): number[] {
+  return (cache.listItems ?? []).filter((item) => item.task !== undefined && item.parent < 0 && selections.some(({ anchor, head }) => {
+    const forward = anchor.line < head.line || (anchor.line === head.line && anchor.ch <= head.ch);
+    const from = forward ? anchor : head;
+    const to = forward ? head : anchor;
+    const lastLine = to.line > from.line && to.ch === 0 ? to.line - 1 : to.line;
+    return item.position.start.line >= from.line && item.position.start.line <= lastLine;
+  })).map((item) => item.position.start.line);
+}
+
+/** Selecting an ancestor includes its descendants once, in source order. */
+export function getTaskMoves(cache: CachedMetadata, lines: number[]): TaskMove[] {
+  const moves: TaskMove[] = [];
+  for (const line of [...new Set(lines)].sort((a, b) => a - b)) {
+    const item = getTaskAtLine(cache, line);
+    if (!item || item.parent >= 0) continue;
+    const blockRange = getTaskBlockRange(cache, item);
+    if (moves.some((move) => blockRange.startLine <= move.blockRange.endLine)) continue;
+    moves.push({ blockRange, sourceHeading: deriveSourceHeading(cache, line) });
+  }
+  return moves;
+}
 
 /**
  * 在 cache.listItems 中查找位于指定行且为任务（task 字段非 undefined）的列表项。
