@@ -10,8 +10,6 @@ import { t } from "./i18n";
 
 /**
  * 匹配 task 行：`- [ ]` / `- [x]` / `* [X]` 等，捕获前导缩进。
- * 缩进长度 > 0 视为子项（不显示图标），= 0 为顶层。
- * 编辑模式拿不到 metadataCache，用缩进近似判断；doMove 另用 cache.parent 兜底。
  */
 const TASK_LINE_REGEX = /^(\s*)[-*+]\s+\[[ xX]\]/;
 
@@ -84,8 +82,6 @@ function buildDecorations(
     const line = state.doc.line(i);
     const match = TASK_LINE_REGEX.exec(line.text);
     if (match) {
-      // 缩进 > 0 视为子项，不显示图标（仅顶层 task 可移动）
-      if (match[1].length > 0) continue;
       // 空 task（`- [ ] ` 后无内容）不显示图标
       if (isBlankTaskLine(line.text)) continue;
       // cache 的 listItems 行号是 0-based，这里存 0-based line

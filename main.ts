@@ -257,11 +257,6 @@ export default class DailyTaskMoverPlugin extends Plugin {
       if (!cache) return;
       const taskItem = getTaskAtLine(cache, taskLine);
       if (!taskItem) return;
-      // 兜底：子 task 不允许单独移动（图标层已过滤，命令入口在此拦截）
-      if (taskItem.parent >= 0) {
-        new Notice(t("notice.subtaskNotMovable"));
-        return;
-      }
 
       const blockRange = getTaskBlockRange(cache, taskItem);
       const sourceHeading = deriveSourceHeading(
@@ -326,8 +321,6 @@ export default class DailyTaskMoverPlugin extends Plugin {
     for (let i = 0; i < count; i++) {
       const taskEl = taskEls[i];
       const taskItem = sectionTasks[i];
-      // 仅顶层 task 显示图标（parent < 0 表示无父列表项）
-      if (taskItem.parent >= 0) continue;
       const taskLine = taskItem.position.start.line;
       // 空 task（`- [ ] ` 后无内容）不显示图标。
       // 只统计嵌套子列表之前的直接文本（getText() 会包含子项文本，导致空父项误判）

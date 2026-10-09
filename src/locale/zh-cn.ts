@@ -4,7 +4,6 @@ const zhCN = {
   "menu.moveToPreviousDay": "移动到前一天",
   "menu.moveToNextDay": "移动到后一天",
   "notice.notDailyNote": "当前笔记不是日记笔记",
-  "notice.subtaskNotMovable": "子任务不可单独移动，请移动顶层任务",
   "notice.movedTo": "已移动到 {name}",
   "notice.failedCreateDailyNote": "创建日记笔记失败",
   "error.multipleHeadings":

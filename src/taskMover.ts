@@ -9,6 +9,23 @@ interface MoveOpts {
   targetFile: TFile;
 }
 
+/** Remove the task's base indentation, keeping relative indentation within the block. */
+export function unindentTaskBlock(text: string): string {
+  const width = (indent: string) => Array.from(indent).reduce(
+    (column, character) => character === "\t" ? column + 4 - column % 4 : column + 1,
+    0
+  );
+  const base = width(/^[ \t]*/.exec(text)?.[0] ?? "");
+  return text.split("\n").map((line) => {
+    let column = 0;
+    let offset = 0;
+    while (offset < line.length && column < base && /[ \t]/.test(line[offset])) {
+      column = line[offset++] === "\t" ? column + 4 - column % 4 : column + 1;
+    }
+    return " ".repeat(Math.max(0, column - base)) + line.slice(offset);
+  }).join("\n");
+}
+
 /**
  * 追加文本到目标末尾，确保前面有空行分隔。
  * 保留原文件的末尾换行状态：原本没有结尾换行就不补（零副作用，
@@ -58,9 +75,9 @@ export async function moveTaskToNote(opts: MoveOpts): Promise<void> {
     const sourceContent = await app.vault.read(sourceFile);
     const sourceLines = sourceContent.split("\n");
     // 提取块文本（含全部子项）
-    const blockText = sourceLines
+    const blockText = unindentTaskBlock(sourceLines
       .slice(blockRange.startLine, blockRange.endLine + 1)
-      .join("\n");
+      .join("\n"));
     const firstLine = blockText.split("\n")[0] ?? "";
 
     const targetContent = await app.vault.read(targetFile);

@@ -7,7 +7,7 @@ Move a task (with all its rich-text sub-items) from the current daily note to th
 
 ## Features
 
-- Move tasks via an inline icon at the end of each top-level task line, or via the command palette
+- Move tasks via an inline icon at the end of each task line, or via the command palette
 - Customizable left-click / right-click actions: popup menu, move to previous day, move to next day, or no action
 - Whole-task move: a task block including sub-items (nested lists, embeds, references, etc.) moves together
 - Heading re-positioning: appended at the end of the matching same-level heading in the target note; auto-creates the heading if the target note does not have it
@@ -21,8 +21,10 @@ Move a task (with all its rich-text sub-items) from the current daily note to th
 ## Usage
 
 1. Open any daily note
-2. Hover over a top-level task — an arrow icon appears at the end of the line
+2. Hover over a task — an arrow icon appears at the end of the line
 3. Click (or right-click, depending on your settings) the icon to move the task to the previous or next day, or use the corresponding command in the command palette
+
+Move a selected child task and its descendants together, placing the selected task at the top level and keeping its descendants indented beneath it. Its parent and siblings stay behind.
 
 ## Settings
 

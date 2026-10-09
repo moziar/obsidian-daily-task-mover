@@ -4,8 +4,6 @@ const en = {
   "menu.moveToPreviousDay": "Move to previous day",
   "menu.moveToNextDay": "Move to next day",
   "notice.notDailyNote": "Current note is not a daily note",
-  "notice.subtaskNotMovable":
-    "Subtasks cannot be moved individually; move the top-level task",
   "notice.movedTo": "Moved to {name}",
   "notice.failedCreateDailyNote": "Failed to create the daily note",
   "error.multipleHeadings":
